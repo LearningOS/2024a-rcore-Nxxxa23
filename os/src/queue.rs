@@ -72,6 +72,7 @@ impl<T> Queue<T>
         return self.size == QUEUEMAXSIZE;
     }
 
+    ///dequeue to tail
     pub fn dequeue_to_tail(&mut self)
     {
         if self.is_empty() || self.is_full() || self.size == 1

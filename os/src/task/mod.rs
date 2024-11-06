@@ -14,7 +14,7 @@ mod switch;
 #[allow(clippy::module_inception)]
 mod task;
 
-use crate::config::MAX_APP_NUM;
+use crate::config::{MAX_APP_NUM, MAX_SYSCALL_NUM};
 use crate::loader::{get_num_app, init_app_cx};
 use crate::sync::UPSafeCell;
 use lazy_static::*;
@@ -22,6 +22,8 @@ use switch::__switch;
 pub use task::{TaskControlBlock, TaskStatus};
 
 pub use context::TaskContext;
+use crate::queue::Queue;
+use crate::timer::get_time_ms;
 
 /// The task manager, where all the tasks are managed.
 ///
@@ -71,6 +73,22 @@ lazy_static! {
     };
 }
 
+/// Stack of start times
+pub struct AppInfo
+{
+    ///id
+    pub id: usize,
+
+    ///start time
+    pub start_time: usize,
+
+    ///syscall times
+    pub syscall_times: [u32; MAX_SYSCALL_NUM]
+}
+
+///APP INFO QUEUE
+pub static mut APPINFOQUEUE: Queue<AppInfo> = Queue::new();
+
 impl TaskManager {
     /// Run the first task in task list.
     ///
@@ -78,6 +96,24 @@ impl TaskManager {
     /// But in ch3, we load apps statically, so the first task is a real app.
     fn run_first_task(&self) -> ! {
         let mut inner = self.inner.exclusive_access();
+        unsafe
+            {
+                APPINFOQUEUE.enqueue(AppInfo
+                {
+                    id: 0,
+                    start_time: get_time_ms(),
+                    syscall_times: [0; MAX_SYSCALL_NUM]
+                });
+                for i in 1..get_num_app()
+                {
+                    APPINFOQUEUE.enqueue(AppInfo
+                    {
+                        id: i,
+                        start_time: 0,
+                        syscall_times: [0; MAX_SYSCALL_NUM]
+                    });
+                }
+            }
         let task0 = &mut inner.tasks[0];
         task0.task_status = TaskStatus::Running;
         let next_task_cx_ptr = &task0.task_cx as *const TaskContext;
@@ -95,6 +131,11 @@ impl TaskManager {
         let mut inner = self.inner.exclusive_access();
         let current = inner.current_task;
         inner.tasks[current].task_status = TaskStatus::Ready;
+
+        unsafe
+            {
+                APPINFOQUEUE.dequeue_to_tail();
+            }
     }
 
     /// Change the status of current `Running` task into `Exited`.
@@ -102,6 +143,15 @@ impl TaskManager {
         let mut inner = self.inner.exclusive_access();
         let current = inner.current_task;
         inner.tasks[current].task_status = TaskStatus::Exited;
+
+        unsafe
+            {
+                if inner.current_task != APPINFOQUEUE.peek_head().unwrap().id
+                {
+                    panic!("error!!!!!!!!!!!!!!!!!!!!!!");
+                }
+                APPINFOQUEUE.dequeue();
+            }
     }
 
     /// Find next task to run and return task id.
@@ -120,6 +170,17 @@ impl TaskManager {
     fn run_next_task(&self) {
         if let Some(next) = self.find_next_task() {
             let mut inner = self.inner.exclusive_access();
+            unsafe
+                {
+                    if next != APPINFOQUEUE.peek_head().unwrap().id
+                    {
+                        APPINFOQUEUE.dequeue_to_tail();
+                        if APPINFOQUEUE.peek_head().unwrap().start_time == 0
+                        {
+                            APPINFOQUEUE.peek_head().unwrap().start_time = get_time_ms();
+                        }
+                    }
+                }
             let current = inner.current_task;
             inner.tasks[next].task_status = TaskStatus::Running;
             inner.current_task = next;
@@ -138,13 +199,15 @@ impl TaskManager {
 }
 
 /// Run the first task in task list.
-pub fn run_first_task() {
+pub fn run_first_task()
+{
     TASK_MANAGER.run_first_task();
 }
 
 /// Switch current `Running` task to the task we have found,
 /// or there is no `Ready` task and we can exit with all applications completed
-fn run_next_task() {
+fn run_next_task()
+{
     TASK_MANAGER.run_next_task();
 }
 

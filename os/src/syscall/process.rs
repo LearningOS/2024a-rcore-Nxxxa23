@@ -4,6 +4,8 @@ use crate::{
     task::{exit_current_and_run_next, suspend_current_and_run_next, TaskStatus},
     timer::get_time_us,
 };
+use crate::timer::get_time_ms;
+use crate::task::APPINFOQUEUE;
 
 #[repr(C)]
 #[derive(Debug)]
@@ -14,14 +16,16 @@ pub struct TimeVal {
 
 /// Task information
 #[allow(dead_code)]
+#[derive(Clone)]
 pub struct TaskInfo {
     /// Task status in it's life cycle
-    status: TaskStatus,
+    pub status: TaskStatus,
     /// The numbers of syscall called by task
-    syscall_times: [u32; MAX_SYSCALL_NUM],
+    pub syscall_times: [u32; MAX_SYSCALL_NUM],
     /// Total running time of task
-    time: usize,
+    pub time: usize,
 }
+
 
 /// task exits and submit an exit code
 pub fn sys_exit(exit_code: i32) -> ! {
@@ -53,5 +57,22 @@ pub fn sys_get_time(ts: *mut TimeVal, _tz: usize) -> isize {
 /// YOUR JOB: Finish sys_task_info to pass testcases
 pub fn sys_task_info(_ti: *mut TaskInfo) -> isize {
     trace!("kernel: sys_task_info");
-    -1
+    unsafe
+        {
+            let mut_ti_option = _ti.as_mut();
+            match mut_ti_option
+            {
+                Some(mut_ti) =>
+                    {
+                        mut_ti.status = TaskStatus::Running;
+                        mut_ti.syscall_times = APPINFOQUEUE.peek_head().unwrap().syscall_times.clone();
+                        mut_ti.time = get_time_ms() - APPINFOQUEUE.peek_head().unwrap().start_time;
+                    }
+                None =>
+                    {
+                        return -1;
+                    }
+            }
+        }
+    return 0;
 }

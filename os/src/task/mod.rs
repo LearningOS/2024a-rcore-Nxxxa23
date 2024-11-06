@@ -20,9 +20,9 @@ use crate::sync::UPSafeCell;
 use lazy_static::*;
 use switch::__switch;
 pub use task::{TaskControlBlock, TaskStatus};
-
 pub use context::TaskContext;
-use crate::queue::Queue;
+pub use crate::queue::Queue;
+
 use crate::timer::get_time_ms;
 
 /// The task manager, where all the tasks are managed.
